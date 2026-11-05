@@ -52,9 +52,15 @@ impl<'doc> Slug<'doc> {
     }
 }
 
-impl<'doc> From<&'doc RepositoryUses> for Slug<'doc> {
-    fn from(uses: &'doc RepositoryUses) -> Self {
-        Self::new(uses.owner(), uses.repo(), uses.slug())
+impl<'doc> Slug<'doc> {
+    /// Returns the GitHub slug for a `uses:` clause, if it has one.
+    ///
+    /// A `uses:` qualified with a host other than github.com has no slug.
+    pub(crate) fn from_uses(uses: &'doc RepositoryUses) -> Option<Self> {
+        match uses.host() {
+            Some(host) if !host.eq_ignore_ascii_case("github.com") => None,
+            _ => Some(Self::new(uses.owner(), uses.repo(), uses.slug())),
+        }
     }
 }
 
@@ -125,7 +131,7 @@ impl<'doc> RepoRef<'doc> {
     /// Returns the [`Slug`] for this [`RepoRef`], if it has one.
     pub(crate) fn slug(&self) -> Option<Slug<'doc>> {
         match self {
-            RepoRef::Uses(uses) => Some(Slug::from(*uses)),
+            RepoRef::Uses(uses) => Slug::from_uses(uses),
             RepoRef::Url { slug, .. } => slug.as_ref().copied(),
         }
     }
@@ -200,6 +206,7 @@ impl<'doc> From<&'doc RemoteRepo> for RepoRef<'doc> {
 
 #[cfg(test)]
 mod tests {
+    use github_actions_models::common::RepositoryUses;
     use url::Url;
 
     use crate::models::repo_ref::{RepoRef, Slug};
@@ -208,6 +215,24 @@ mod tests {
     fn test_slug_display() {
         let slug = Slug::new("foo", "bar", "foo/bar");
         assert_eq!(slug.to_string(), "foo/bar");
+    }
+
+    #[test]
+    fn test_reporef_from_uses_host() {
+        let uses = RepositoryUses::parse("actions/checkout@v4").unwrap();
+        assert_eq!(
+            RepoRef::from(&uses).slug().unwrap().slug(),
+            "actions/checkout"
+        );
+
+        let uses = RepositoryUses::parse("https://github.com/actions/checkout@v4").unwrap();
+        assert_eq!(
+            RepoRef::from(&uses).slug().unwrap().slug(),
+            "actions/checkout"
+        );
+
+        let uses = RepositoryUses::parse("https://code.forgejo.org/actions/checkout@v4").unwrap();
+        assert!(RepoRef::from(&uses).slug().is_none());
     }
 
     #[test]

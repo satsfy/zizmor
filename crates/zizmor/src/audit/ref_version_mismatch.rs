@@ -13,6 +13,7 @@ use crate::{
     models::{
         AsDocument, StepCommon,
         action::CompositeStep,
+        repo_ref::Slug,
         uses::RepositoryUsesExt as _,
         version::RawVersion,
         workflow::{ReusableWorkflowCallJob, Step},
@@ -112,6 +113,10 @@ impl RefVersionMismatch {
             return Ok(None);
         };
 
+        let Some(slug) = Slug::from_uses(uses) else {
+            return Ok(None);
+        };
+
         let parent_location = parent.location();
         let uses_location = parent_location
             .with_keys(["uses".into()])
@@ -126,7 +131,7 @@ impl RefVersionMismatch {
                 // SHA-pinned action without a recognized version comment.
                 let Some(tag) = self
                     .client
-                    .longest_tag_for_commit(&uses.into(), uses.subpath(), commit_sha)
+                    .longest_tag_for_commit(&slug, uses.subpath(), commit_sha)
                     .await
                     .map_err(Self::err)?
                 else {
@@ -169,7 +174,7 @@ impl RefVersionMismatch {
 
         let git_ref = self
             .client
-            .lookup_ref(&uses.into(), version)
+            .lookup_ref(&slug, version)
             .await
             .map_err(Self::err)?;
 
@@ -217,7 +222,7 @@ impl RefVersionMismatch {
 
         if let Some(suggestion) = self
             .client
-            .longest_tag_for_commit(&uses.into(), uses.subpath(), commit_sha)
+            .longest_tag_for_commit(&slug, uses.subpath(), commit_sha)
             .await
             .map_err(Self::err)?
         {
