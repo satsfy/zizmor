@@ -86,9 +86,9 @@ impl UnpinnedUses {
         };
 
         let action = if let Some(subpath) = uses.subpath() {
-            format!("{}/{}", uses.slug(), subpath)
+            format!("{}{}/{}", uses.host_prefix(), uses.slug(), subpath)
         } else {
-            uses.slug().to_string()
+            format!("{}{}", uses.host_prefix(), uses.slug())
         };
 
         // For the fix itself, we need to situate two patches:

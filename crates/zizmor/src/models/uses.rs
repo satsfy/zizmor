@@ -265,6 +265,10 @@ pub(crate) trait RepositoryUsesExt {
 
     /// See [`RepoRef::symbolic_ref`].
     fn symbolic_ref(&self) -> Option<&str>;
+
+    /// Returns the scheme and host of a fully qualified `uses:`, as in
+    /// `https://code.forgejo.org/`, or an empty string.
+    fn host_prefix(&self) -> &str;
 }
 
 impl RepositoryUsesExt for RepositoryUses {
@@ -282,6 +286,13 @@ impl RepositoryUsesExt for RepositoryUses {
 
     fn symbolic_ref(&self) -> Option<&str> {
         RepoRef::from(self).symbolic_ref()
+    }
+
+    fn host_prefix(&self) -> &str {
+        match (self.host(), self.raw().find("://")) {
+            (Some(host), Some(scheme)) => &self.raw()[..scheme + 3 + host.len() + 1],
+            _ => "",
+        }
     }
 }
 
@@ -327,7 +338,7 @@ mod tests {
 
     use crate::models::repo_ref::RepoRef;
 
-    use super::RepositoryUsesPattern;
+    use super::{RepositoryUsesExt as _, RepositoryUsesPattern};
 
     #[test]
     fn test_repositoryusespattern_parse() {
@@ -546,6 +557,26 @@ mod tests {
                 matches,
                 "{uses} vs {pattern}"
             );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_host_prefix() -> anyhow::Result<()> {
+        for (uses, prefix) in [
+            ("actions/checkout@v4", ""),
+            (
+                "https://code.forgejo.org/actions/checkout@v4",
+                "https://code.forgejo.org/",
+            ),
+            ("http://s/o/r/./@v1", "http://s/"),
+            ("https://host:3000/o/r/sub@v1", "https://host:3000/"),
+        ] {
+            let Ok(Uses::Repository(uses)) = Uses::parse(uses) else {
+                return Err(anyhow!("invalid uses: {uses}"));
+            };
+            assert_eq!(uses.host_prefix(), prefix);
         }
 
         Ok(())

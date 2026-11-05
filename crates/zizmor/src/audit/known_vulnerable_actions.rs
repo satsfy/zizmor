@@ -162,7 +162,7 @@ impl KnownVulnerableActions {
             return Err(Self::err(anyhow!("no GitHub slug for {uses}")));
         };
 
-        let mut uses_slug = format!("{}/{}", uses.owner(), uses.repo());
+        let mut uses_slug = format!("{}{}/{}", uses.host_prefix(), uses.owner(), uses.repo());
         if let Some(subpath) = &uses.subpath() {
             uses_slug.push_str(&format!("/{subpath}"));
         }

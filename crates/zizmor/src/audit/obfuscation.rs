@@ -9,7 +9,7 @@ use crate::{
         Finding, Fix, FixDisposition, Persona,
         location::{Feature, Location, Routable as _},
     },
-    models::{StepCommon, action::CompositeStep, workflow::Step},
+    models::{StepCommon, action::CompositeStep, uses::RepositoryUsesExt as _, workflow::Step},
     utils::parse_fenced_expressions_from_routable,
 };
 use subfeature::Subfeature;
@@ -80,17 +80,19 @@ impl Obfuscation {
             }
         }
 
+        let host = uses.host_prefix();
+
         // If all components were removed, the subpath should be empty
         if components.is_empty() {
             Some(format!(
-                "{}/{}@{}",
+                "{host}{}/{}@{}",
                 uses.owner(),
                 uses.repo(),
                 uses.git_ref()
             ))
         } else {
             Some(format!(
-                "{}/{}/{}@{}",
+                "{host}{}/{}/{}@{}",
                 uses.owner(),
                 uses.repo(),
                 components.join("/"),
