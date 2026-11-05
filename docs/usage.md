@@ -129,6 +129,13 @@ zizmor --collect=workflows,actions example/example
     `foo/third_party/bar/.github/workflows/ci.yml`, since the latter would
     not actually be used by GitHub Actions.
 
+    Workflows under `.forgejo/workflows/` and `.gitea/workflows/` are
+    collected as well, including subdirectories, since Forgejo reads the
+    former and both forges read the latter (recursively) before falling
+    back to `.github/workflows/`. zizmor audits every workflow directory it
+    finds, regardless of which one the forge serving the repository would
+    pick.
+
     However, if `zizmor foo/third_party/` is invoked then all nested
     inputs *will* be collected, since `foo/third_pary/` is not itself
     a Git root.

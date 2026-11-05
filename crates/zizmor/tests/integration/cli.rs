@@ -833,3 +833,77 @@ fn test_stdin_valid_yaml_unknown_schema_strict() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_collects_forgejo_and_gitea_workflows() -> anyhow::Result<()> {
+    use zizmor_dev::WorkspaceBuilder;
+
+    let workflow = r#"
+on: issues
+permissions: {}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.issue.title }}"
+"#;
+
+    let workspace = WorkspaceBuilder::default().is_git_repo(true).build()?;
+    workspace.add_file(".forgejo/workflows/ci.yml", workflow);
+    workspace.add_file(".gitea/workflows/ci.yml", workflow);
+    workspace.add_file(".forgejo/workflows/nested/ci.yml", workflow);
+    workspace.add_file("vendor/.forgejo/workflows/ci.yml", workflow);
+
+    // Default collection walks for actions too, so both are checked:
+    // workflows-only collection relies on the directory pruning.
+    for args in [vec![], vec!["--collect=workflows"]] {
+        let output = Zizmor::cargo_bin()
+            .args(args)
+            .input(workspace.path())
+            .run()?;
+
+        insta::allow_duplicates! {
+        insta::assert_snapshot!(
+            output,
+            @"
+        error[template-injection]: code injection via template expansion
+         --> @@INPUT@@/.forgejo/workflows/ci.yml:8:24
+          |
+        8 |       - run: echo \"${{ github.event.issue.title }}\"
+          |         ---            ^^^^^^^^^^^^^^^^^^^^^^^^ may expand into attacker-controllable code
+          |         |
+          |         this run block
+          |
+          = note: audit confidence → High
+          = note: this finding has an auto-fix
+
+        error[template-injection]: code injection via template expansion
+         --> @@INPUT@@/.forgejo/workflows/nested/ci.yml:8:24
+          |
+        8 |       - run: echo \"${{ github.event.issue.title }}\"
+          |         ---            ^^^^^^^^^^^^^^^^^^^^^^^^ may expand into attacker-controllable code
+          |         |
+          |         this run block
+          |
+          = note: audit confidence → High
+          = note: this finding has an auto-fix
+
+        error[template-injection]: code injection via template expansion
+         --> @@INPUT@@/.gitea/workflows/ci.yml:8:24
+          |
+        8 |       - run: echo \"${{ github.event.issue.title }}\"
+          |         ---            ^^^^^^^^^^^^^^^^^^^^^^^^ may expand into attacker-controllable code
+          |         |
+          |         this run block
+          |
+          = note: audit confidence → High
+          = note: this finding has an auto-fix
+
+        12 findings (9 suppressed, 3 unsafe fixes): 0 informational, 0 low, 0 medium, 3 high
+        "
+        );
+        }
+    }
+
+    Ok(())
+}

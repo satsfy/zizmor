@@ -28,7 +28,8 @@ use crate::{
     CollectionOptions,
     models::repo_ref::Slug,
     registry::input::{
-        CollectionContext, CollectionError, InputGroup, InputKey, InputKind, InputSlug,
+        CollectionContext, CollectionError, FORGE_WORKFLOWS_DIRS, GITHUB_WORKFLOWS_DIR, InputGroup,
+        InputKey, InputKind, InputSlug,
     },
     utils::ZIZMOR_AGENT,
 };
@@ -820,30 +821,53 @@ impl Client {
 
         // It'd be nice if the GitHub contents API allowed us to retrieve
         // all file contents with a directory listing, but it doesn't.
-        // Instead, we make `N+1` API calls: one to list the workflows
+        // Instead, we make `N+1` API calls: one to list each workflows
         // directory, and `N` for the constituent workflow files.
-        let url = format!(
-            "{api_base}/repos/{owner}/{repo}/contents/.github/workflows",
-            api_base = self.api_base
-        );
-        let resp: Vec<File> = self
-            .api_client
-            .get(&url)
-            .query(&[("ref", slug.git_ref())])
-            .send()
-            .await
-            .map_err(ClientError::from)?
-            .error_for_status()
-            .map_err(|err| match err {
+        // Forgejo and Gitea workflow directories are listed recursively.
+        let mut pending: Vec<String> = std::iter::once(GITHUB_WORKFLOWS_DIR)
+            .chain(FORGE_WORKFLOWS_DIRS)
+            .map(String::from)
+            .collect();
+        let mut resp = vec![];
+        let mut not_found = None;
+
+        while let Some(dir) = pending.pop() {
+            let url = format!(
+                "{api_base}/repos/{owner}/{repo}/contents/{dir}",
+                api_base = self.api_base
+            );
+            let entries: Vec<File> = match self
+                .api_client
+                .get(&url)
+                .query(&[("ref", slug.git_ref())])
+                .send()
+                .await
+                .map_err(ClientError::from)?
+                .error_for_status()
+            {
+                Ok(resp) => resp.json().await.map_err(ClientError::from)?,
                 // TODO: Disambiguate a 404 from missing repo vs missing workflows dir.
-                e if e.status() == Some(StatusCode::NOT_FOUND) => {
-                    CollectionError::RemoteWithoutWorkflows(ClientError::from(e), slug.to_string())
+                Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
+                    not_found = Some(ClientError::from(e));
+                    continue;
                 }
-                e => ClientError::from(e).into(),
-            })?
-            .json()
-            .await
-            .map_err(ClientError::from)?;
+                Err(e) => return Err(ClientError::from(e).into()),
+            };
+
+            for entry in entries {
+                if entry.kind == "dir" && dir != GITHUB_WORKFLOWS_DIR {
+                    pending.push(entry.path);
+                } else {
+                    resp.push(entry);
+                }
+            }
+        }
+
+        if resp.is_empty()
+            && let Some(e) = not_found
+        {
+            return Err(CollectionError::RemoteWithoutWorkflows(e, slug.to_string()));
+        }
 
         for file in resp {
             let Some(kind) = InputKind::from_path(CollectionContext::repository_root(
@@ -1093,6 +1117,8 @@ pub(crate) struct VulnerablePackage {
 #[derive(Deserialize)]
 pub(crate) struct File {
     path: String,
+    #[serde(rename = "type")]
+    kind: String,
 }
 
 #[cfg(test)]

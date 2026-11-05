@@ -177,6 +177,14 @@ impl<'a> CollectionContext<'a> {
     }
 }
 
+/// The workflow directory GitHub Actions reads, relative to the repository root.
+pub(crate) const GITHUB_WORKFLOWS_DIR: &str = ".github/workflows";
+
+/// The workflow directories Forgejo (`.forgejo`, then `.gitea`) and Gitea
+/// (`.gitea`) read before falling back to `.github/workflows`, relative to
+/// the repository root. Both forges list them recursively.
+pub(crate) const FORGE_WORKFLOWS_DIRS: [&str; 2] = [".forgejo/workflows", ".gitea/workflows"];
+
 impl InputKind {
     /// Classify a normalized path using the source's collection rules.
     pub(crate) fn from_path(context: CollectionContext<'_>) -> Option<Self> {
@@ -193,8 +201,18 @@ impl InputKind {
         let parent = path.parent()?;
         let filename = path.file_name()?;
         let is_workflow = match context {
-            CollectionContext::RepositoryRoot { .. } => parent == ".github/workflows",
-            _ => parent.ends_with(".github/workflows"),
+            CollectionContext::RepositoryRoot { .. } => {
+                parent == GITHUB_WORKFLOWS_DIR
+                    || FORGE_WORKFLOWS_DIRS.iter().any(|dir| path.starts_with(dir))
+            }
+            _ => {
+                parent.ends_with(GITHUB_WORKFLOWS_DIR)
+                    || parent.ancestors().any(|dir| {
+                        FORGE_WORKFLOWS_DIRS
+                            .iter()
+                            .any(|forge| dir.ends_with(forge))
+                    })
+            }
         };
 
         if is_workflow {
@@ -673,7 +691,15 @@ impl InputGroup {
         let actions = options.mode_set.collects(InputKind::Action);
         let dependabot = options.mode_set.collects(InputKind::Dependabot);
         let dotgithub = path.join(".github");
-        let workflows_dir = dotgithub.join("workflows");
+        let github_workflows = path.join(GITHUB_WORKFLOWS_DIR);
+        let forge_dirs: Vec<_> = FORGE_WORKFLOWS_DIRS
+            .iter()
+            .map(|dir| path.join(dir))
+            .collect();
+        let forge_parents: Vec<_> = forge_dirs
+            .iter()
+            .map(|dir| dir.parent().expect("workflow dir has a parent").to_owned())
+            .collect();
 
         // Prune directories before descent while leaving ignore-file handling
         // to the walker. Actions can occur anywhere, so their discovery still
@@ -683,7 +709,14 @@ impl InputGroup {
                 || entry.depth() == 0
                 || actions
                 || ((workflows || dependabot) && entry.path() == dotgithub.as_std_path())
-                || (workflows && entry.path() == workflows_dir.as_std_path())
+                || (workflows
+                    && (entry.path() == github_workflows.as_std_path()
+                        || forge_parents
+                            .iter()
+                            .any(|dir| entry.path() == dir.as_std_path())
+                        || forge_dirs
+                            .iter()
+                            .any(|dir| entry.path().starts_with(dir.as_std_path()))))
         });
 
         Self::collect_from_walk(path, options, Some(root), walker).await
@@ -1034,7 +1067,35 @@ mod tests {
 
     use crate::registry::input::root::Root;
 
-    use super::{InputKey, InputSlug};
+    use super::{CollectionContext, InputKey, InputKind, InputSlug};
+
+    #[test]
+    fn test_input_kind_from_path_workflow_dirs() {
+        for (path, root, nested) in [
+            (".github/workflows/ci.yml", true, true),
+            (".github/workflows/sub/ci.yml", false, false),
+            (".forgejo/workflows/ci.yml", true, true),
+            (".forgejo/workflows/sub/ci.yml", true, true),
+            (".gitea/workflows/sub/deep/ci.yml", true, true),
+            ("vendor/.forgejo/workflows/ci.yml", false, true),
+            ("vendor/.github/workflows/ci.yml", false, true),
+            (".forgejo/ci.yml", false, false),
+            ("workflows/ci.yml", false, false),
+        ] {
+            let path = Utf8Path::new(path);
+            let is_workflow = |context| InputKind::from_path(context) == Some(InputKind::Workflow);
+            assert_eq!(
+                is_workflow(CollectionContext::repository_root(path)),
+                root,
+                "{path} at a repository root"
+            );
+            assert_eq!(
+                is_workflow(CollectionContext::recursive_directory(path)),
+                nested,
+                "{path} in a nested directory"
+            );
+        }
+    }
 
     #[test]
     fn test_input_key_display() {

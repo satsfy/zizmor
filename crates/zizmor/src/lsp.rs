@@ -115,6 +115,11 @@ impl LanguageServer for Backend {
             ls_types::DocumentFilter {
                 language: Some("yaml".into()),
                 scheme: None,
+                pattern: Some("**/.{forgejo,gitea}/workflows/**/*.{yml,yaml}".into()),
+            },
+            ls_types::DocumentFilter {
+                language: Some("yaml".into()),
+                scheme: None,
                 pattern: Some("**/action.{yml,yaml}".into()),
             },
             ls_types::DocumentFilter {
