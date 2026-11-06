@@ -15,7 +15,10 @@ use crate::{
     finding::{Confidence, Finding, Fix, Severity, location::Routable as _},
     github,
     models::{
-        StepCommon, action::CompositeStep, repo_ref::RepoRef, uses::RepositoryUsesExt as _,
+        StepCommon,
+        action::CompositeStep,
+        repo_ref::{RepoRef, Slug},
+        uses::RepositoryUsesExt as _,
         workflow::Step,
     },
     state::AuditState,
@@ -155,7 +158,11 @@ impl KnownVulnerableActions {
         target_version: String,
         step: &impl StepCommon<'doc>,
     ) -> Result<Fix<'doc>, AuditError> {
-        let mut uses_slug = format!("{}/{}", uses.owner(), uses.repo());
+        let Some(slug) = Slug::from_uses(uses) else {
+            return Err(Self::err(anyhow!("no GitHub slug for {uses}")));
+        };
+
+        let mut uses_slug = format!("{}{}/{}", uses.host_prefix(), uses.owner(), uses.repo());
         if let Some(subpath) = &uses.subpath() {
             uses_slug.push_str(&format!("/{subpath}"));
         }
@@ -180,15 +187,11 @@ impl KnownVulnerableActions {
                 // We try the prefixed version first, since we expect it
                 // to be more common.
 
-                let target_ref = match self
-                    .client
-                    .lookup_ref(&uses.into(), &prefixed_version)
-                    .await
-                {
+                let target_ref = match self.client.lookup_ref(&slug, &prefixed_version).await {
                     Ok(Some(commit_ref)) => Some(commit_ref),
                     Ok(None) | Err(_) => self
                         .client
-                        .lookup_ref(&uses.into(), &bare_version)
+                        .lookup_ref(&slug, &bare_version)
                         .await
                         .map_err(Self::err)?,
                 }

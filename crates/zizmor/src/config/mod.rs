@@ -391,7 +391,7 @@ impl UnpinnedUsesPolicies {
                 // Policies are ordered by specificity, so we can
                 // iterate and return eagerly.
                 for (uses_pattern, policy) in policies {
-                    if uses_pattern.matches(&uses.into()) {
+                    if uses_pattern.matches_trusted(&uses.into()) {
                         return (Some(uses_pattern), *policy);
                     }
                 }
@@ -640,12 +640,13 @@ impl Config {
         tracing::debug!("config discovery: no root, falling back to search");
         let canonical = path.canonicalize_utf8()?;
 
-        // Sad hack case: if the user passed `.github/workflows` directly, we
-        // need to start two directories up to avoid confusing `zizmor.yml`
-        // (a GitHub Actions workflow) with `zizmor.yml` (the config).
+        // Sad hack case: if the user passed `.github/workflows` (or the
+        // Forgejo and Gitea equivalents) directly, we need to start two
+        // directories up to avoid confusing `zizmor.yml` (a workflow) with
+        // `zizmor.yml` (the config).
         let mut candidate_path = if canonical.file_name() == Some("workflows")
             && let Some(parent) = canonical.parent()
-            && parent.file_name() == Some(".github")
+            && matches!(parent.file_name(), Some(".github" | ".forgejo" | ".gitea"))
         {
             let Some(parent) = parent.parent() else {
                 tracing::debug!("no parent for `{canonical}`, cannot discover config");

@@ -10,6 +10,7 @@ use crate::config::{Config, UsesPolicy};
 use crate::finding::location::{Locatable, Routable as _};
 use crate::finding::{Confidence, Finding, Fix, Persona, Severity};
 use crate::github;
+use crate::models::repo_ref::Slug;
 use crate::models::uses::{RepositoryUsesExt as _, RepositoryUsesPattern};
 use crate::models::version::Version;
 use crate::models::workflow::ReusableWorkflowCallJob;
@@ -53,7 +54,9 @@ impl UnpinnedUses {
             return None;
         }
 
-        let git_ref = match client.lookup_ref(&uses.into(), uses.git_ref()).await {
+        let slug = Slug::from_uses(uses)?;
+
+        let git_ref = match client.lookup_ref(&slug, uses.git_ref()).await {
             Ok(Some(git_ref)) => git_ref,
             Ok(None) => {
                 tracing::warn!("no commit matching {uses}");
@@ -73,7 +76,7 @@ impl UnpinnedUses {
         // version avoids any later `ref-version-mismatch` findings when the
         // major tag is mutated by the upstream.
         let longest_tag = match client
-            .longest_tag_for_commit(&uses.into(), uses.subpath(), git_ref.commit())
+            .longest_tag_for_commit(&slug, uses.subpath(), git_ref.commit())
             .await
         {
             Ok(Some(tag)) => Cow::Owned(tag.name),
@@ -83,9 +86,9 @@ impl UnpinnedUses {
         };
 
         let action = if let Some(subpath) = uses.subpath() {
-            format!("{}/{}", uses.slug(), subpath)
+            format!("{}{}/{}", uses.host_prefix(), uses.slug(), subpath)
         } else {
-            uses.slug().to_string()
+            format!("{}{}", uses.host_prefix(), uses.slug())
         };
 
         // For the fix itself, we need to situate two patches:

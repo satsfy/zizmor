@@ -346,6 +346,9 @@ impl LocalUses {
 
 #[derive(Debug, PartialEq)]
 struct RepositoryUsesInner<'a> {
+    /// The host the repository lives on, if the clause is fully qualified
+    /// (`https://code.forgejo.org/actions/checkout@v4`).
+    host: Option<&'a str>,
     /// The repo user or org.
     owner: &'a str,
     /// The repo name.
@@ -363,9 +366,26 @@ impl<'a> RepositoryUsesInner<'a> {
         // NOTE: Empirically, GitHub Actions strips whitespace from the start and end of `uses:` clauses.
         let uses = uses.trim();
 
+        // Forgejo and Gitea accept a fully qualified `uses:` with a scheme
+        // and host in front of the `owner/repo` slug.
+        let (host, path) = match uses
+            .strip_prefix("https://")
+            .or_else(|| uses.strip_prefix("http://"))
+        {
+            Some(rest) => match rest.split_once('/') {
+                Some((host, path)) if !host.is_empty() => (Some(host), path),
+                _ => {
+                    return Err(UsesError(format!(
+                        "missing owner/repo after host in {uses}"
+                    )));
+                }
+            },
+            None => (None, uses),
+        };
+
         // NOTE: Both git refs and paths can contain `@`, but in practice
         // GHA refuses to run a `uses:` clause with more than one `@` in it.
-        let (path, git_ref) = match uses.rsplit_once('@') {
+        let (path, git_ref) = match path.rsplit_once('@') {
             Some((path, git_ref)) => (path, git_ref),
             None => return Err(UsesError(format!("missing `@<ref>` in {uses}"))),
         };
@@ -384,6 +404,7 @@ impl<'a> RepositoryUsesInner<'a> {
             };
 
             Ok(RepositoryUsesInner {
+                host,
                 owner,
                 repo,
                 slug,
@@ -426,6 +447,11 @@ impl RepositoryUses {
     /// Get the raw `uses:` string.
     pub fn raw(&self) -> &str {
         self.borrow_owner()
+    }
+
+    /// Get the host of this repository `uses:` clause, if it is fully qualified.
+    pub fn host(&self) -> Option<&str> {
+        self.borrow_dependent().host
     }
 
     /// Get the owner (user or org) of this repository `uses:` clause.
@@ -693,6 +719,7 @@ mod tests {
             RepositoryUses {
                 owner: "actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "actions",
                     repo: "checkout",
                     slug: "actions/checkout",
@@ -712,6 +739,7 @@ mod tests {
             RepositoryUses {
                 owner: "actions/aws/ec2@8f4b7f84864484a7bf31766abe9204da3cbe65b3",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "actions",
                     repo: "aws",
                     slug: "actions/aws",
@@ -733,6 +761,7 @@ mod tests {
             RepositoryUses {
                 owner: "example/foo/bar/baz/quux@8f4b7f84864484a7bf31766abe9204da3cbe65b3",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "example",
                     repo: "foo",
                     slug: "example/foo",
@@ -754,6 +783,7 @@ mod tests {
             RepositoryUses {
                 owner: "actions/checkout@v4",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "actions",
                     repo: "checkout",
                     slug: "actions/checkout",
@@ -772,6 +802,7 @@ mod tests {
             RepositoryUses {
                 owner: "actions/checkout@abcd",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "actions",
                     repo: "checkout",
                     slug: "actions/checkout",
@@ -779,6 +810,62 @@ mod tests {
                     git_ref: "abcd",
                 },
             },
+        )
+        "#
+        );
+
+        // Fully qualified with a host (Forgejo and Gitea).
+        insta::assert_debug_snapshot!(
+            Uses::parse("https://code.forgejo.org/actions/checkout@v4").unwrap(),
+            @r#"
+        Repository(
+            RepositoryUses {
+                owner: "https://code.forgejo.org/actions/checkout@v4",
+                dependent: RepositoryUsesInner {
+                    host: Some(
+                        "code.forgejo.org",
+                    ),
+                    owner: "actions",
+                    repo: "checkout",
+                    slug: "actions/checkout",
+                    subpath: None,
+                    git_ref: "v4",
+                },
+            },
+        )
+        "#
+        );
+
+        // Fully qualified with a host and subpath.
+        insta::assert_debug_snapshot!(
+            Uses::parse("http://gitea.example.com:3000/actions/aws/ec2@v1").unwrap(),
+            @r#"
+        Repository(
+            RepositoryUses {
+                owner: "http://gitea.example.com:3000/actions/aws/ec2@v1",
+                dependent: RepositoryUsesInner {
+                    host: Some(
+                        "gitea.example.com:3000",
+                    ),
+                    owner: "actions",
+                    repo: "aws",
+                    slug: "actions/aws",
+                    subpath: Some(
+                        "ec2",
+                    ),
+                    git_ref: "v1",
+                },
+            },
+        )
+        "#
+        );
+
+        // Invalid: host without a slug.
+        insta::assert_debug_snapshot!(
+            Uses::parse("https://code.forgejo.org@v4").unwrap_err(),
+            @r#"
+        UsesError(
+            "missing owner/repo after host in https://code.forgejo.org@v4",
         )
         "#
         );
@@ -1011,6 +1098,7 @@ mod tests {
             RepositoryUses {
                 owner: "actions/checkout@v4",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "actions",
                     repo: "checkout",
                     slug: "actions/checkout",
@@ -1071,6 +1159,7 @@ mod tests {
             RepositoryUses {
                 owner: "octo-org/this-repo/.github/workflows/workflow-1.yml@172239021f7ba04fe7327647b213799853a9eb89",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "octo-org",
                     repo: "this-repo",
                     slug: "octo-org/this-repo",
@@ -1093,6 +1182,7 @@ mod tests {
             RepositoryUses {
                 owner: "octo-org/this-repo/.github/workflows/workflow-1.yml@notahash",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "octo-org",
                     repo: "this-repo",
                     slug: "octo-org/this-repo",
@@ -1115,6 +1205,7 @@ mod tests {
             RepositoryUses {
                 owner: "octo-org/this-repo/.github/workflows/workflow-1.yml@abcd",
                 dependent: RepositoryUsesInner {
+                    host: None,
                     owner: "octo-org",
                     repo: "this-repo",
                     slug: "octo-org/this-repo",

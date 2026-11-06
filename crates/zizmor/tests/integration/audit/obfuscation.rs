@@ -469,3 +469,43 @@ jobs:
 
     Ok(())
 }
+
+#[test]
+fn test_fix_keeps_host() -> Result<()> {
+    let workspace = WorkspaceBuilder::default().is_git_repo(true).build()?;
+    workspace.add_file(
+        ".github/workflows/test.yml",
+        r#"
+on: push
+permissions: {}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout/./@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+"#,
+    );
+
+    insta::assert_snapshot!(
+        &workspace.diff(".github/workflows/test.yml", |workspace| {
+            Zizmor::cargo_bin()
+                .args(["--fix=all"])
+                .input(workspace.path())
+                .run()
+        })?,
+        @"
+    @@ -5,6 +5,6 @@
+       test:
+         runs-on: ubuntu-latest
+         steps:
+    -      - uses: https://code.forgejo.org/actions/checkout/./@8e8c483db84b4bee98b60c0593521ed34d9990e8
+    +      - uses: https://code.forgejo.org/actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+             with:
+               persist-credentials: false
+    "
+    );
+
+    Ok(())
+}

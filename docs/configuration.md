@@ -87,7 +87,8 @@ typically named `zizmor.yml` or `zizmor.yaml`.
 
                 `zizmor .github/workflows/` is a special case: in this case,
                 discovery starts in the parent of `.github`, i.e. two parents
-                above the given directory.
+                above the given directory. The same applies to
+                `.forgejo/workflows/` and `.gitea/workflows/`.
 
                 This is done to avoid confusion between a `zizmor.yml` config
                 file and a `zizmor.yml` workflow file.

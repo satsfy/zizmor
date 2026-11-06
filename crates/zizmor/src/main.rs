@@ -553,7 +553,7 @@ async fn main() -> ExitCode {
                             .elements([
                                 Level::HELP.message(
                                     format!(
-                                        "ensure that {slug} contains one or more workflows under `.github/workflows/`"
+                                        "ensure that {slug} contains one or more workflows under `.github/workflows/`, `.forgejo/workflows/` or `.gitea/workflows/`"
                                     )
                                 ),
                                 Level::HELP.message(

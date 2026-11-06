@@ -13,6 +13,7 @@ use crate::{
     models::{
         AsDocument, StepCommon,
         action::CompositeStep,
+        repo_ref::Slug,
         uses::RepositoryUsesExt as _,
         workflow::{ReusableWorkflowCallJob, Step},
     },
@@ -31,13 +32,13 @@ audit_meta!(
 
 impl StaleActionRefs {
     async fn is_stale_action_ref(&self, uses: &RepositoryUses) -> Result<bool, AuditError> {
-        let tag = match uses.commit_ref() {
-            Some(commit_ref) => self
+        let tag = match (Slug::from_uses(uses), uses.commit_ref()) {
+            (Some(slug), Some(commit_ref)) => self
                 .client
-                .longest_tag_for_commit(&uses.into(), uses.subpath(), commit_ref)
+                .longest_tag_for_commit(&slug, uses.subpath(), commit_ref)
                 .await
                 .map_err(Self::err)?,
-            None => return Ok(false),
+            _ => return Ok(false),
         };
         Ok(tag.is_none())
     }

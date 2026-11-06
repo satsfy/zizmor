@@ -11,7 +11,9 @@ use crate::{
     audit::AuditError,
     finding::{Confidence, Finding, Fix, Persona, Severity, location::Routable as _},
     github::{Client, ClientError},
-    models::{StepBodyCommon, StepCommon, uses::RepositoryUsesExt as _, version::Version},
+    models::{
+        StepBodyCommon, StepCommon, repo_ref::Slug, uses::RepositoryUsesExt as _, version::Version,
+    },
     state::AuditState,
     utils::split_patterns,
 };
@@ -49,8 +51,12 @@ impl Artipacked {
         } else {
             match self.client {
                 Some(ref client) => {
+                    let Some(slug) = Slug::from_uses(uses) else {
+                        return Ok(None);
+                    };
+
                     let tag = client
-                        .longest_tag_for_commit(&uses.into(), uses.subpath(), uses.git_ref())
+                        .longest_tag_for_commit(&slug, uses.subpath(), uses.git_ref())
                         .await?;
 
                     match tag {

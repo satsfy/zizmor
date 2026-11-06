@@ -514,6 +514,8 @@ impl From<ColorMode> for anstream::ColorChoice {
 /// that source's inputs in "root-aware" mode. Only the following root-relative
 /// patterns are collected:
 /// - `{root}/.github/workflows/*.{yml,yaml}`
+/// - `{root}/.forgejo/workflows/**/*.{yml,yaml}`
+/// - `{root}/.gitea/workflows/**/*.{yml,yaml}`
 /// - `{root}/**/action.{yml,yaml}`
 /// - `{root}/.github/dependabot.{yml,yaml}`
 /// - `{root}/.pre-commit-config.yaml`
