@@ -1031,6 +1031,56 @@ zizmor --gh-hostname custom.example.com ...
 GH_HOST=custom.ghe.com zizmor ...
 ```
 
+## Forgejo and Gitea
+
+!!! warning
+
+    Forgejo and Gitea workflows are audited **as if they were GitHub Actions
+    workflows**. Both forges differ from GitHub in ways the audits do not
+    model, so expect false positives and negatives in the areas below.
+
+`zizmor` collects workflows from `.forgejo/workflows/` and `.gitea/workflows/`
+and understands the fully qualified `uses: https://host/owner/repo@ref` form
+that Forgejo and Gitea accept.
+
+Keep the following differences in mind:
+
+* Forgejo ignores `permissions:`, including `id-token: write` (it uses
+  `enable-openid-connect` instead), and hands every non-fork run a
+  write-scoped token. [`excessive-permissions`](./audits.md#excessive-permissions)
+  and [`undocumented-permissions`](./audits.md#undocumented-permissions)
+  therefore report on a key that does nothing there. Gitea honors
+  `permissions:` with its own scope names.
+* On Forgejo, a short `uses: owner/repo@ref` is cloned from the instance's
+  configured actions URL (a mirror by default), while the online audits and
+  the [`unpinned-uses`](./audits.md#unpinned-uses) auto-fix consult
+  `github.com`. Their results describe a repository the runner never
+  clones, so run with `--no-online-audits` on Forgejo. Gitea resolves short
+  `uses:` against `github.com`, where the online audits apply.
+* A fully qualified `uses:` on a host other than `github.com` is skipped by
+  the online audits, and in [`forbidden-uses`](./audits.md#forbidden-uses)
+  and [`unpinned-uses`](./audits.md#unpinned-uses) policies it matches only
+  the `*` pattern. In particular, a `deny:` list cannot name a repository on
+  another host. Audits that recognize an action by its behavior, such as
+  [`artipacked`](./audits.md#artipacked) and
+  [`cache-poisoning`](./audits.md#cache-poisoning), match it regardless of
+  host.
+* The Forgejo runner ignores the `set-env` and `add-path` workflow commands,
+  so [`insecure-commands`](./audits.md#insecure-commands) describes a risk
+  that does not exist there. The Gitea runner gates them on
+  `ACTIONS_ALLOW_UNSECURE_COMMANDS` like GitHub does.
+* Forgejo has no `workflow_run` trigger, so that part of
+  [`dangerous-triggers`](./audits.md#dangerous-triggers) never applies.
+  Every runner on either forge is self-hosted, so
+  [`self-hosted-runner`](./audits.md#self-hosted-runner) only fires on the
+  literal `self-hosted` label.
+* Dependabot, GitHub Apps and trusted publishing do not exist on either
+  forge, so [`github-app`](./audits.md#github-app),
+  [`use-trusted-publishing`](./audits.md#use-trusted-publishing) and the
+  Dependabot audits describe GitHub-only behavior. The
+  [`bot-conditions`](./audits.md#bot-conditions) finding applies, but its
+  auto-fix uses `github.actor_id`, which Forgejo does not provide.
+
 ## Limitations
 
 `zizmor` can help you secure your CI/CD setup by finding common,

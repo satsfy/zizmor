@@ -9,6 +9,14 @@ of `zizmor`.
 
 ## Next (UNRELEASED)
 
+### New Features 🌈
+
+* zizmor now collects workflows from `.forgejo/workflows/` and
+  `.gitea/workflows/`, and parses the fully qualified
+  `uses: https://host/owner/repo@ref` form that Forgejo and Gitea accept.
+  See [the Forgejo and Gitea documentation](./usage.md#forgejo-and-gitea)
+  for the forge differences that the audits do not model.
+
 ### Bug Fixes 🐛
 
 * LSP: Fixed a bug where findings that should have been suppressed
