@@ -117,6 +117,18 @@ impl RepositoryUsesPattern {
         }
     }
 
+    /// Like [`Self::matches`], except that a `uses:` qualified with a host
+    /// other than github.com only matches the `*` wildcard.
+    ///
+    /// Allowlists and pinning policies name GitHub repositories, while
+    /// behavior audits match any copy of an action.
+    pub(crate) fn matches_trusted<'doc>(&self, repo: &RepoRef<'doc>) -> bool {
+        match repo {
+            RepoRef::Uses(uses) if Slug::from_uses(uses).is_none() => matches!(self, Self::Any),
+            _ => self.matches(repo),
+        }
+    }
+
     fn matches_uses(&self, uses: &RepositoryUses) -> bool {
         match self {
             Self::ExactWithRef {
@@ -498,6 +510,48 @@ mod tests {
     }
 
     #[test]
+    fn test_repositoryusespattern_matches_trusted() -> anyhow::Result<()> {
+        for (uses, pattern, matches) in [
+            ("actions/checkout@v3", "actions/checkout", true),
+            (
+                "https://github.com/actions/checkout@v3",
+                "actions/checkout",
+                true,
+            ),
+            ("https://GitHub.com/actions/checkout@v3", "actions/*", true),
+            // a host qualified uses on another forge is not a GitHub repo
+            (
+                "https://code.forgejo.org/actions/checkout@v3",
+                "actions/checkout",
+                false,
+            ),
+            (
+                "https://code.forgejo.org/actions/checkout@v3",
+                "actions/*",
+                false,
+            ),
+            (
+                "https://code.forgejo.org/actions/checkout/sub@v3",
+                "actions/checkout/sub",
+                false,
+            ),
+            ("https://code.forgejo.org/actions/checkout@v3", "*", true),
+        ] {
+            let Ok(Uses::Repository(uses)) = Uses::parse(uses) else {
+                return Err(anyhow!("invalid uses: {uses}"));
+            };
+            let pattern = RepositoryUsesPattern::from_str(pattern)?;
+            assert_eq!(
+                pattern.matches_trusted(&RepoRef::from(&uses)),
+                matches,
+                "{uses} vs {pattern}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_repositoryusespattern_matches_uses() -> anyhow::Result<()> {
         for (uses, pattern, matches) in [
             // OK: case-insensitive, except subpath and tag
@@ -528,6 +582,17 @@ mod tests {
             ("actions/checkout/foo@v3", "actions/checkout", false),
             ("actions/somethingelse@v3", "actions/checkout", false),
             ("whatever/checkout@v3", "actions/checkout", false),
+            // the host does not take part in behavior matching
+            (
+                "https://github.com/actions/checkout@v3",
+                "actions/checkout",
+                true,
+            ),
+            (
+                "https://code.forgejo.org/actions/checkout@v3",
+                "actions/checkout",
+                true,
+            ),
             // owner/repo/* matches regardless of ref and casing
             // including subpaths
             // but does not match when owner diverges
